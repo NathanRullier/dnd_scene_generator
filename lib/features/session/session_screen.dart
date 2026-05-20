@@ -32,6 +32,7 @@ class _SessionScreenState extends ConsumerState<SessionScreen> {
     if (isListening) {
       await controller.stopSession();
       ref.read(isListeningProvider.notifier).state = false;
+      ref.read(partialTranscriptionProvider.notifier).state = '';
       _eventSubscription?.cancel();
       _eventSubscription = null;
     } else {
@@ -103,8 +104,14 @@ class _SessionScreenState extends ConsumerState<SessionScreen> {
 
     switch (event.type) {
       case SessionEventType.transcriptionUpdated:
-        ref.read(transcriptionBufferProvider.notifier).state =
-            event.message ?? '';
+        if (event.isPartial) {
+          ref.read(partialTranscriptionProvider.notifier).state =
+              event.message ?? '';
+        } else {
+          ref.read(transcriptionBufferProvider.notifier).state =
+              event.message ?? '';
+          ref.read(partialTranscriptionProvider.notifier).state = '';
+        }
 
       case SessionEventType.placeDetected:
         ref.read(detectedPlaceProvider.notifier).state = event.message ?? '';
@@ -154,6 +161,7 @@ class _SessionScreenState extends ConsumerState<SessionScreen> {
     final genProgress = ref.watch(generationProgressProvider);
     final currentScene = ref.watch(currentSceneImageProvider);
     final transcription = ref.watch(transcriptionBufferProvider);
+    final partialTranscription = ref.watch(partialTranscriptionProvider);
     final detectedPlace = ref.watch(detectedPlaceProvider);
     final generationPrompt = ref.watch(activeGenerationPromptProvider);
 
@@ -168,6 +176,7 @@ class _SessionScreenState extends ConsumerState<SessionScreen> {
           ),
           PipelineStatusPanel(
             transcription: transcription,
+            partialTranscription: partialTranscription,
             detectedPlace: detectedPlace,
             generationPrompt: generationPrompt,
             isListening: isListening,

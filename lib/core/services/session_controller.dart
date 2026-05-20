@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/foundation.dart';
+import 'package:speech_to_text/speech_to_text.dart';
 import 'package:uuid/uuid.dart';
 
 import '../models/models.dart';
@@ -20,12 +21,16 @@ class SessionEvent {
   final double? progress;
   final String? prompt;
 
+  /// True when [message] is a live partial result, not yet committed.
+  final bool isPartial;
+
   const SessionEvent({
     required this.type,
     this.message,
     this.sceneImage,
     this.progress,
     this.prompt,
+    this.isPartial = false,
   });
 }
 
@@ -55,6 +60,10 @@ class SessionController {
   String _currentTranscription = '';
   Timer? _analysisTimer;
   StreamSubscription<String>? _audioSubscription;
+
+  // Platform STT (used when whisper.cpp native library is not available).
+  final SpeechToText _platformStt = SpeechToText();
+  bool _usingPlatformStt = false;
 
   GenerationSettings _settings = const GenerationSettings();
   List<Character> _activeCharacters = [];
@@ -108,13 +117,12 @@ class SessionController {
     _nlpService.resetContext();
 
     try {
-      await _audioService.startListening(
-        chunkDuration: const Duration(seconds: 5),
-      );
+      if (_sttService.isStubMode) {
+        await _startPlatformStt();
+      } else {
+        await _startNativeStt();
+      }
 
-      _audioSubscription = _audioService.audioChunks.listen(_onAudioChunk);
-
-      // Analyze buffer periodically for place descriptions
       _analysisTimer = Timer.periodic(
         const Duration(seconds: 8),
         (_) => _analyzeAccumulatedText(),
@@ -125,12 +133,85 @@ class SessionController {
     }
   }
 
+  Future<void> _startNativeStt() async {
+    await _audioService.startListening(
+      chunkDuration: const Duration(seconds: 5),
+    );
+    _audioSubscription = _audioService.audioChunks.listen(_onAudioChunk);
+    _usingPlatformStt = false;
+  }
+
+  Future<void> _startPlatformStt() async {
+    final available = await _platformStt.initialize(
+      onError: (e) => debugPrint('[SessionController] Platform STT error: $e'),
+    );
+    if (!available) {
+      _emitError('Platform speech recognition is not available on this device.');
+      return;
+    }
+    _usingPlatformStt = true;
+    await _listenWithPlatformStt();
+  }
+
+  /// Starts a single listen pass and auto-restarts when it times out.
+  Future<void> _listenWithPlatformStt() async {
+    if (_state == SessionState.idle || !_usingPlatformStt) return;
+
+    await _platformStt.listen(
+      onResult: (result) {
+        final words = result.recognizedWords.trim();
+        if (words.isEmpty) return;
+
+        if (result.finalResult) {
+          // Commit words to the permanent buffer.
+          _textBuffer.write(' ');
+          _textBuffer.write(words);
+          _currentTranscription = _textBuffer.toString().trim();
+          _eventController.add(SessionEvent(
+            type: SessionEventType.transcriptionUpdated,
+            message: _currentTranscription,
+            isPartial: false,
+          ));
+        } else {
+          // Live partial — broadcast without touching the committed buffer.
+          _eventController.add(SessionEvent(
+            type: SessionEventType.transcriptionUpdated,
+            message: words,
+            isPartial: true,
+          ));
+        }
+      },
+      listenFor: const Duration(seconds: 30),
+      pauseFor: const Duration(seconds: 4),
+      partialResults: true,
+      listenMode: ListenMode.dictation,
+    );
+
+    // Restart automatically while session is still active.
+    _platformStt.statusListener = (status) {
+      if (status == SpeechToText.doneStatus && _state != SessionState.idle) {
+        Future.delayed(
+          const Duration(milliseconds: 300),
+          _listenWithPlatformStt,
+        );
+      }
+    };
+  }
+
   Future<void> stopSession() async {
     _analysisTimer?.cancel();
     _analysisTimer = null;
-    _audioSubscription?.cancel();
-    _audioSubscription = null;
-    await _audioService.stopListening();
+
+    if (_usingPlatformStt) {
+      _usingPlatformStt = false;
+      _platformStt.statusListener = null;
+      await _platformStt.stop();
+    } else {
+      _audioSubscription?.cancel();
+      _audioSubscription = null;
+      await _audioService.stopListening();
+    }
+
     _setState(SessionState.idle);
   }
 

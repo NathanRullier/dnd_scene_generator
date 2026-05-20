@@ -9,6 +9,7 @@ import 'package:flutter/material.dart';
 /// no data to show (e.g. before a session starts).
 class PipelineStatusPanel extends StatelessWidget {
   final String transcription;
+  final String partialTranscription;
   final String detectedPlace;
   final String generationPrompt;
   final bool isListening;
@@ -18,6 +19,7 @@ class PipelineStatusPanel extends StatelessWidget {
   const PipelineStatusPanel({
     super.key,
     required this.transcription,
+    required this.partialTranscription,
     required this.detectedPlace,
     required this.generationPrompt,
     required this.isListening,
@@ -31,7 +33,6 @@ class PipelineStatusPanel extends StatelessWidget {
     final bool hasDetected = detectedPlace.isNotEmpty;
     final bool hasGeneration = isGenerating && generationPrompt.isNotEmpty;
 
-    // Nothing to show when idle and no residual data.
     if (!isListening && transcription.isEmpty && !hasDetected && !hasGeneration) {
       return const SizedBox.shrink();
     }
@@ -48,13 +49,11 @@ class PipelineStatusPanel extends StatelessWidget {
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          // Always show the hearing row while listening, even if silent.
           if (isListening || transcription.isNotEmpty)
             _HearingRow(
-              text: transcription.isNotEmpty
-                  ? transcription
-                  : 'Listening for speech…',
-              isDim: transcription.isEmpty,
+              committed: transcription,
+              partial: partialTranscription,
+              isListening: isListening,
             ),
           if (hasDetected) _DetectedRow(description: detectedPlace),
           if (hasGeneration)
@@ -69,36 +68,68 @@ class PipelineStatusPanel extends StatelessWidget {
 }
 
 class _HearingRow extends StatelessWidget {
-  final String text;
-  final bool isDim;
-  const _HearingRow({required this.text, this.isDim = false});
+  final String committed;
+  final String partial;
+  final bool isListening;
+
+  const _HearingRow({
+    required this.committed,
+    required this.partial,
+    required this.isListening,
+  });
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final bool empty = committed.isEmpty && partial.isEmpty;
+
     return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 10, 16, 6),
+      padding: const EdgeInsets.fromLTRB(16, 10, 16, 8),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Icon(
             Icons.hearing,
             size: 15,
-            color: isDim
-                ? theme.colorScheme.primary.withValues(alpha: 0.4)
+            color: empty
+                ? theme.colorScheme.primary.withValues(alpha: 0.35)
                 : theme.colorScheme.primary,
           ),
           const SizedBox(width: 8),
           Expanded(
-            child: Text(
-              text,
-              style: theme.textTheme.bodySmall?.copyWith(
-                color: isDim ? Colors.white30 : Colors.white70,
-                fontStyle: FontStyle.italic,
-              ),
-              maxLines: 2,
-              overflow: TextOverflow.ellipsis,
-            ),
+            child: empty
+                ? Text(
+                    'Listening for speech…',
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: Colors.white24,
+                      fontStyle: FontStyle.italic,
+                    ),
+                  )
+                : RichText(
+                    maxLines: 3,
+                    overflow: TextOverflow.ellipsis,
+                    text: TextSpan(
+                      children: [
+                        if (committed.isNotEmpty)
+                          TextSpan(
+                            text: committed,
+                            style: theme.textTheme.bodySmall?.copyWith(
+                              color: Colors.white,
+                              fontStyle: FontStyle.italic,
+                            ),
+                          ),
+                        if (partial.isNotEmpty)
+                          TextSpan(
+                            // Separate from committed text with a space.
+                            text: '${committed.isNotEmpty ? ' ' : ''}$partial',
+                            style: theme.textTheme.bodySmall?.copyWith(
+                              color: Colors.white38,
+                              fontStyle: FontStyle.italic,
+                            ),
+                          ),
+                      ],
+                    ),
+                  ),
           ),
         ],
       ),

@@ -22,8 +22,9 @@ dependencies:
   path: ^1.9.1
 
   # Audio / Microphone
-  record: ^5.2.0
+  record: ^6.2.0
   permission_handler: ^11.3.1
+  speech_to_text: ^7.0.0
 
   # Networking (model downloads)
   dio: ^5.7.0

@@ -11,17 +11,21 @@ import 'package:flutter/foundation.dart';
 class SttService {
   String? _modelPath;
   bool _isLoaded = false;
+  bool _isStubMode = false;
 
   bool get isModelLoaded => _isLoaded;
 
+  /// True when loaded without a real whisper model file (native lib not built).
+  bool get isStubMode => _isStubMode;
+
   Future<void> loadModel(String modelPath) async {
     if (!await File(modelPath).exists()) {
-      // Native lib is a stub — allow loading without the file so the
-      // full session pipeline can be exercised in development.
       debugPrint('[SttService] Model file not found, running in stub mode: $modelPath');
+      _isStubMode = true;
       _isLoaded = true;
       return;
     }
+    _isStubMode = false;
     _modelPath = modelPath;
     _isLoaded = true;
     debugPrint('[SttService] Model loaded: $modelPath');
@@ -51,6 +55,7 @@ class SttService {
 
   void unloadModel() {
     _isLoaded = false;
+    _isStubMode = false;
     _modelPath = null;
     debugPrint('[SttService] Model unloaded');
   }

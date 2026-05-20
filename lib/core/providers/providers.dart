@@ -235,7 +235,12 @@ class ActiveModelNotifier extends StateNotifier<String?> {
 // --- Session state ---
 
 final isListeningProvider = StateProvider<bool>((ref) => false);
+
+/// Committed (final) transcription text.
 final transcriptionBufferProvider = StateProvider<String>((ref) => '');
+
+/// Live partial words being spoken right now (not yet committed).
+final partialTranscriptionProvider = StateProvider<String>((ref) => '');
 final currentSceneImageProvider = StateProvider<SceneImage?>((ref) => null);
 
 // --- Gallery (persisted) ---
