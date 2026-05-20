@@ -276,3 +276,9 @@ class GalleryNotifier extends StateNotifier<List<SceneImage>> {
 
 final isGeneratingProvider = StateProvider<bool>((ref) => false);
 final generationProgressProvider = StateProvider<double>((ref) => 0.0);
+
+/// The most recently detected place description from the NLP analysis.
+final detectedPlaceProvider = StateProvider<String>((ref) => '');
+
+/// The full image generation prompt currently in use (cleared when done).
+final activeGenerationPromptProvider = StateProvider<String>((ref) => '');

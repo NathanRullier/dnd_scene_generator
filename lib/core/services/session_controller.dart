@@ -18,12 +18,14 @@ class SessionEvent {
   final String? message;
   final SceneImage? sceneImage;
   final double? progress;
+  final String? prompt;
 
   const SessionEvent({
     required this.type,
     this.message,
     this.sceneImage,
     this.progress,
+    this.prompt,
   });
 }
 
@@ -193,10 +195,6 @@ class SessionController {
   Future<void> _generateScene(PlaceAnalysis analysis) async {
     _setState(SessionState.generating);
 
-    _eventController.add(const SessionEvent(
-      type: SessionEventType.generationStarted,
-    ));
-
     final hasPhotoMaker =
         _activeCharacters.any((c) => c.referenceImagePaths.isNotEmpty);
 
@@ -211,6 +209,11 @@ class SessionController {
             settings: _settings,
             activeCharacters: _activeCharacters,
           );
+
+    _eventController.add(SessionEvent(
+      type: SessionEventType.generationStarted,
+      prompt: prompt,
+    ));
 
     final charImages = _activeCharacters
         .expand((c) => c.referenceImagePaths)

@@ -6,8 +6,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/providers/providers.dart';
 import '../../core/services/session_controller.dart';
 import 'widgets/listening_indicator.dart';
+import 'widgets/pipeline_status_panel.dart';
 import 'widgets/scene_display.dart';
-import 'widgets/transcription_ticker.dart';
 
 class SessionScreen extends ConsumerStatefulWidget {
   const SessionScreen({super.key});
@@ -119,18 +119,13 @@ class _SessionScreenState extends ConsumerState<SessionScreen> {
             event.message ?? '';
 
       case SessionEventType.placeDetected:
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('New scene detected: ${event.message}'),
-            backgroundColor:
-                Theme.of(context).colorScheme.primary,
-            duration: const Duration(seconds: 2),
-          ),
-        );
+        ref.read(detectedPlaceProvider.notifier).state = event.message ?? '';
 
       case SessionEventType.generationStarted:
         ref.read(isGeneratingProvider.notifier).state = true;
         ref.read(generationProgressProvider.notifier).state = 0.0;
+        ref.read(activeGenerationPromptProvider.notifier).state =
+            event.prompt ?? '';
 
       case SessionEventType.generationProgress:
         ref.read(generationProgressProvider.notifier).state =
@@ -138,6 +133,7 @@ class _SessionScreenState extends ConsumerState<SessionScreen> {
 
       case SessionEventType.generationComplete:
         ref.read(isGeneratingProvider.notifier).state = false;
+        ref.read(activeGenerationPromptProvider.notifier).state = '';
         if (event.sceneImage != null) {
           ref.read(currentSceneImageProvider.notifier).state =
               event.sceneImage;
@@ -170,32 +166,25 @@ class _SessionScreenState extends ConsumerState<SessionScreen> {
     final genProgress = ref.watch(generationProgressProvider);
     final currentScene = ref.watch(currentSceneImageProvider);
     final transcription = ref.watch(transcriptionBufferProvider);
+    final detectedPlace = ref.watch(detectedPlaceProvider);
+    final generationPrompt = ref.watch(activeGenerationPromptProvider);
 
     return Scaffold(
       appBar: AppBar(
         title: const Text('D&D Scene Generator'),
-        actions: [
-          if (isGenerating)
-            const Padding(
-              padding: EdgeInsets.all(12),
-              child: SizedBox(
-                width: 24,
-                height: 24,
-                child: CircularProgressIndicator(strokeWidth: 2),
-              ),
-            ),
-        ],
       ),
       body: Column(
         children: [
           Expanded(
             child: SceneDisplay(sceneImage: currentScene),
           ),
-          if (isGenerating)
-            LinearProgressIndicator(
-              value: genProgress > 0 ? genProgress : null,
-            ),
-          TranscriptionTicker(text: transcription),
+          PipelineStatusPanel(
+            transcription: transcription,
+            detectedPlace: detectedPlace,
+            generationPrompt: generationPrompt,
+            isGenerating: isGenerating,
+            generationProgress: genProgress,
+          ),
           _buildControls(context, isListening, isGenerating),
         ],
       ),
