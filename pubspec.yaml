@@ -24,7 +24,7 @@ dependencies:
   # Audio / Microphone
   record: ^6.2.0
   permission_handler: ^11.3.1
-  speech_to_text: ^7.0.0
+  speech_to_text: ^7.3.0
 
   # Networking (model downloads)
   dio: ^5.7.0

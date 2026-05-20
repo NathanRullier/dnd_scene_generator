@@ -45,10 +45,14 @@ enum SessionEventType {
 }
 
 /// Orchestrates the full pipeline: audio -> STT -> NLP -> image generation.
-///
-/// This is the central controller that connects all services and manages
-/// the continuous listening + place-detection + generation loop.
 class SessionController {
+  static const _analysisInterval = Duration(seconds: 8);
+  static const _audioChunkDuration = Duration(seconds: 5);
+  static const _platformSttListenFor = Duration(seconds: 30);
+  static const _platformSttPauseFor = Duration(seconds: 4);
+  static const _platformSttRestartDelay = Duration(milliseconds: 300);
+  static const _placeConfidenceThreshold = 0.6;
+
   final AudioService _audioService;
   final SttService _sttService;
   final NlpService _nlpService;
@@ -57,13 +61,9 @@ class SessionController {
 
   SessionState _state = SessionState.idle;
   final StringBuffer _textBuffer = StringBuffer();
-  String _currentTranscription = '';
   Timer? _analysisTimer;
   StreamSubscription<String>? _audioSubscription;
-
-  // Platform STT (used when whisper.cpp native library is not available).
   final SpeechToText _platformStt = SpeechToText();
-  bool _usingPlatformStt = false;
 
   GenerationSettings _settings = const GenerationSettings();
   List<Character> _activeCharacters = [];
@@ -73,7 +73,8 @@ class SessionController {
 
   Stream<SessionEvent> get events => _eventController.stream;
   SessionState get state => _state;
-  String get currentTranscription => _currentTranscription;
+  String get currentTranscription => _textBuffer.toString().trim();
+  bool get _usingPlatformStt => _sttService.isStubMode;
 
   SessionController({
     required AudioService audioService,
@@ -87,9 +88,7 @@ class SessionController {
         _imageGenService = imageGenService,
         _promptBuilder = promptBuilder;
 
-  void updateSettings(GenerationSettings settings) {
-    _settings = settings;
-  }
+  void updateSettings(GenerationSettings settings) => _settings = settings;
 
   void updateCharacters(List<Character> characters) {
     _activeCharacters = characters.where((c) => c.isActive).toList();
@@ -98,104 +97,86 @@ class SessionController {
   Future<void> startSession() async {
     if (_state != SessionState.idle) return;
 
-    if (!_sttService.isModelLoaded) {
-      _emitError('Speech-to-text model not loaded');
-      return;
-    }
-    if (!_nlpService.isModelLoaded) {
-      _emitError('NLP model not loaded');
-      return;
-    }
-    if (!_imageGenService.isModelLoaded) {
-      _emitError('Image generation model not loaded');
+    final missing = _firstUnloadedService();
+    if (missing != null) {
+      _emitError('$missing model not loaded');
       return;
     }
 
     _setState(SessionState.listening);
     _textBuffer.clear();
-    _currentTranscription = '';
     _nlpService.resetContext();
 
     try {
-      if (_sttService.isStubMode) {
+      if (_usingPlatformStt) {
         await _startPlatformStt();
       } else {
         await _startNativeStt();
       }
-
-      _analysisTimer = Timer.periodic(
-        const Duration(seconds: 8),
-        (_) => _analyzeAccumulatedText(),
-      );
+      _analysisTimer =
+          Timer.periodic(_analysisInterval, (_) => _analyzeAccumulatedText());
     } catch (e) {
       _setState(SessionState.idle);
       _emitError('Failed to start session: $e');
     }
   }
 
+  String? _firstUnloadedService() {
+    if (!_sttService.isModelLoaded) return 'Speech-to-text';
+    if (!_nlpService.isModelLoaded) return 'NLP';
+    if (!_imageGenService.isModelLoaded) return 'Image generation';
+    return null;
+  }
+
   Future<void> _startNativeStt() async {
-    await _audioService.startListening(
-      chunkDuration: const Duration(seconds: 5),
-    );
+    await _audioService.startListening(chunkDuration: _audioChunkDuration);
     _audioSubscription = _audioService.audioChunks.listen(_onAudioChunk);
-    _usingPlatformStt = false;
   }
 
   Future<void> _startPlatformStt() async {
     final available = await _platformStt.initialize(
-      onError: (e) => debugPrint('[SessionController] Platform STT error: $e'),
+      onStatus: _onPlatformSttStatus,
+      onError: (e) {
+        debugPrint('[SessionController] Platform STT error: ${e.errorMsg}');
+        _emitPartialTranscription('Speech recognition error: ${e.errorMsg}');
+      },
     );
     if (!available) {
-      _emitError('Platform speech recognition is not available on this device.');
-      return;
+      throw StateError(
+        'Speech recognition is not available on this platform. '
+        'Install a Whisper model from the Models tab to enable transcription.',
+      );
     }
-    _usingPlatformStt = true;
-    await _listenWithPlatformStt();
+    _emitPartialTranscription('Listening — speak into the microphone…');
+    await _listenOncePlatformStt();
   }
 
-  /// Starts a single listen pass and auto-restarts when it times out.
-  Future<void> _listenWithPlatformStt() async {
-    if (_state == SessionState.idle || !_usingPlatformStt) return;
+  void _onPlatformSttStatus(String status) {
+    debugPrint('[SessionController] Platform STT status: $status');
+    if (status == SpeechToText.doneStatus && _state != SessionState.idle) {
+      Future.delayed(_platformSttRestartDelay, _listenOncePlatformStt);
+    }
+  }
 
+  Future<void> _listenOncePlatformStt() async {
+    if (_state == SessionState.idle) return;
     await _platformStt.listen(
       onResult: (result) {
         final words = result.recognizedWords.trim();
         if (words.isEmpty) return;
-
         if (result.finalResult) {
-          // Commit words to the permanent buffer.
           _textBuffer.write(' ');
           _textBuffer.write(words);
-          _currentTranscription = _textBuffer.toString().trim();
-          _eventController.add(SessionEvent(
-            type: SessionEventType.transcriptionUpdated,
-            message: _currentTranscription,
-            isPartial: false,
-          ));
+          _emitTranscription(currentTranscription, isPartial: false);
         } else {
-          // Live partial — broadcast without touching the committed buffer.
-          _eventController.add(SessionEvent(
-            type: SessionEventType.transcriptionUpdated,
-            message: words,
-            isPartial: true,
-          ));
+          _emitPartialTranscription(words);
         }
       },
-      listenFor: const Duration(seconds: 30),
-      pauseFor: const Duration(seconds: 4),
+      listenFor: _platformSttListenFor,
+      pauseFor: _platformSttPauseFor,
       partialResults: true,
       listenMode: ListenMode.dictation,
     );
-
-    // Restart automatically while session is still active.
-    _platformStt.statusListener = (status) {
-      if (status == SpeechToText.doneStatus && _state != SessionState.idle) {
-        Future.delayed(
-          const Duration(milliseconds: 300),
-          _listenWithPlatformStt,
-        );
-      }
-    };
   }
 
   Future<void> stopSession() async {
@@ -203,7 +184,6 @@ class SessionController {
     _analysisTimer = null;
 
     if (_usingPlatformStt) {
-      _usingPlatformStt = false;
       _platformStt.statusListener = null;
       await _platformStt.stop();
     } else {
@@ -217,23 +197,13 @@ class SessionController {
 
   Future<void> _onAudioChunk(String chunkPath) async {
     try {
-      final transcription = await _sttService.transcribe(chunkPath);
-
-      // Clean up temp file
-      try {
-        await File(chunkPath).delete();
-      } catch (_) {}
-
-      if (transcription.trim().isEmpty) return;
+      final transcription = (await _sttService.transcribe(chunkPath)).trim();
+      try { await File(chunkPath).delete(); } catch (_) {}
+      if (transcription.isEmpty) return;
 
       _textBuffer.write(' ');
-      _textBuffer.write(transcription.trim());
-      _currentTranscription = _textBuffer.toString().trim();
-
-      _eventController.add(SessionEvent(
-        type: SessionEventType.transcriptionUpdated,
-        message: _currentTranscription,
-      ));
+      _textBuffer.write(transcription);
+      _emitTranscription(currentTranscription, isPartial: false);
     } catch (e) {
       debugPrint('[SessionController] Transcription error: $e');
     }
@@ -242,26 +212,21 @@ class SessionController {
   Future<void> _analyzeAccumulatedText() async {
     if (_state != SessionState.listening) return;
 
-    final text = _textBuffer.toString().trim();
+    final text = currentTranscription;
     if (text.isEmpty) return;
 
     _setState(SessionState.analyzing);
 
     try {
       final analysis = await _nlpService.analyzeText(text);
-
       if (analysis.isPlaceDescription &&
           analysis.isNewPlace &&
-          analysis.confidence > 0.6) {
+          analysis.confidence > _placeConfidenceThreshold) {
         _eventController.add(SessionEvent(
           type: SessionEventType.placeDetected,
           message: analysis.extractedDescription,
         ));
-
-        // Clear buffer since we've consumed this description
         _textBuffer.clear();
-        _currentTranscription = '';
-
         await _generateScene(analysis);
       }
     } catch (e) {
@@ -272,6 +237,17 @@ class SessionController {
       _setState(SessionState.listening);
     }
   }
+
+  void _emitTranscription(String text, {required bool isPartial}) {
+    _eventController.add(SessionEvent(
+      type: SessionEventType.transcriptionUpdated,
+      message: text,
+      isPartial: isPartial,
+    ));
+  }
+
+  void _emitPartialTranscription(String text) =>
+      _emitTranscription(text, isPartial: true);
 
   Future<void> _generateScene(PlaceAnalysis analysis) async {
     _setState(SessionState.generating);
