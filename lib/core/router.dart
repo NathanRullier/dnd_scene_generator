@@ -7,6 +7,7 @@ import '../features/characters/character_edit_screen.dart';
 import '../features/model_management/model_management_screen.dart';
 import '../features/settings/settings_screen.dart';
 import '../features/gallery/gallery_screen.dart';
+import '../features/speech_test/speech_test_screen.dart';
 import '../features/shell_screen.dart';
 
 final routerProvider = Provider<GoRouter>((ref) {
@@ -49,6 +50,10 @@ final routerProvider = Provider<GoRouter>((ref) {
           GoRoute(
             path: '/gallery',
             builder: (context, state) => const GalleryScreen(),
+          ),
+          GoRoute(
+            path: '/speech-test',
+            builder: (context, state) => const SpeechTestScreen(),
           ),
         ],
       ),

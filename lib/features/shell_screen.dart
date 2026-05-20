@@ -13,6 +13,7 @@ class AppShell extends StatelessWidget {
     if (location.startsWith('/models')) return 2;
     if (location.startsWith('/settings')) return 3;
     if (location.startsWith('/gallery')) return 4;
+    if (location.startsWith('/speech-test')) return 5;
     return 0;
   }
 
@@ -63,6 +64,11 @@ class AppShell extends StatelessWidget {
                   selectedIcon: Icon(Icons.photo_library),
                   label: Text('Gallery'),
                 ),
+                NavigationRailDestination(
+                  icon: Icon(Icons.record_voice_over_outlined),
+                  selectedIcon: Icon(Icons.record_voice_over),
+                  label: Text('Speech Test'),
+                ),
               ],
             ),
             const VerticalDivider(width: 1),
@@ -103,6 +109,11 @@ class AppShell extends StatelessWidget {
             selectedIcon: Icon(Icons.photo_library),
             label: 'Gallery',
           ),
+          NavigationDestination(
+            icon: Icon(Icons.record_voice_over_outlined),
+            selectedIcon: Icon(Icons.record_voice_over),
+            label: 'Speech Test',
+          ),
         ],
       ),
     );
@@ -120,6 +131,8 @@ class AppShell extends StatelessWidget {
         context.go('/settings');
       case 4:
         context.go('/gallery');
+      case 5:
+        context.go('/speech-test');
     }
   }
 }
