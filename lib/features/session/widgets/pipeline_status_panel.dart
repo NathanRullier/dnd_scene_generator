@@ -4,10 +4,14 @@ import 'package:flutter/material.dart';
 ///   1. Hearing  — scrolling transcription of what the mic picks up
 ///   2. Detected — the place description the NLP extracted
 ///   3. Generating — the image prompt being sent to Stable Diffusion + progress
+///
+/// Always visible while [isListening] is true. Hides entirely when idle with
+/// no data to show (e.g. before a session starts).
 class PipelineStatusPanel extends StatelessWidget {
   final String transcription;
   final String detectedPlace;
   final String generationPrompt;
+  final bool isListening;
   final bool isGenerating;
   final double generationProgress;
 
@@ -16,6 +20,7 @@ class PipelineStatusPanel extends StatelessWidget {
     required this.transcription,
     required this.detectedPlace,
     required this.generationPrompt,
+    required this.isListening,
     required this.isGenerating,
     required this.generationProgress,
   });
@@ -23,11 +28,11 @@ class PipelineStatusPanel extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final bool hasTranscription = transcription.isNotEmpty;
     final bool hasDetected = detectedPlace.isNotEmpty;
     final bool hasGeneration = isGenerating && generationPrompt.isNotEmpty;
 
-    if (!hasTranscription && !hasDetected && !hasGeneration) {
+    // Nothing to show when idle and no residual data.
+    if (!isListening && transcription.isEmpty && !hasDetected && !hasGeneration) {
       return const SizedBox.shrink();
     }
 
@@ -43,7 +48,14 @@ class PipelineStatusPanel extends StatelessWidget {
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          if (hasTranscription) _HearingRow(text: transcription),
+          // Always show the hearing row while listening, even if silent.
+          if (isListening || transcription.isNotEmpty)
+            _HearingRow(
+              text: transcription.isNotEmpty
+                  ? transcription
+                  : 'Listening for speech…',
+              isDim: transcription.isEmpty,
+            ),
           if (hasDetected) _DetectedRow(description: detectedPlace),
           if (hasGeneration)
             _GeneratingRow(
@@ -58,7 +70,8 @@ class PipelineStatusPanel extends StatelessWidget {
 
 class _HearingRow extends StatelessWidget {
   final String text;
-  const _HearingRow({required this.text});
+  final bool isDim;
+  const _HearingRow({required this.text, this.isDim = false});
 
   @override
   Widget build(BuildContext context) {
@@ -71,14 +84,16 @@ class _HearingRow extends StatelessWidget {
           Icon(
             Icons.hearing,
             size: 15,
-            color: theme.colorScheme.primary,
+            color: isDim
+                ? theme.colorScheme.primary.withValues(alpha: 0.4)
+                : theme.colorScheme.primary,
           ),
           const SizedBox(width: 8),
           Expanded(
             child: Text(
               text,
               style: theme.textTheme.bodySmall?.copyWith(
-                color: Colors.white70,
+                color: isDim ? Colors.white30 : Colors.white70,
                 fontStyle: FontStyle.italic,
               ),
               maxLines: 2,

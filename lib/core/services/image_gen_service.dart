@@ -52,7 +52,9 @@ class ImageGenService {
 
   Future<void> loadModel(String modelPath) async {
     if (!await File(modelPath).exists()) {
-      throw Exception('SD model not found at $modelPath');
+      debugPrint('[ImageGenService] Model file not found, running in stub mode: $modelPath');
+      _isLoaded = true;
+      return;
     }
     _modelPath = modelPath;
     _isLoaded = true;
@@ -94,6 +96,14 @@ class ImageGenService {
       final outputPath = p.join(galleryDir, '${const Uuid().v4()}.png');
 
       final fullPrompt = '${settings.baseStylePrompt}, $prompt';
+
+      if (_modelPath == null) {
+        return GenerationResult(
+          success: false,
+          error: 'Native library not yet linked. Build the sd_native library first.',
+          elapsed: stopwatch.elapsed,
+        );
+      }
 
       // Attempt native generation in a separate isolate
       final success = await Isolate.run(() {

@@ -62,7 +62,9 @@ RULES:
 
   Future<void> loadModel(String modelPath) async {
     if (!await File(modelPath).exists()) {
-      throw Exception('LLM model not found at $modelPath');
+      debugPrint('[NlpService] Model file not found, running in stub mode: $modelPath');
+      _isLoaded = true;
+      return;
     }
     _modelPath = modelPath;
     _isLoaded = true;
@@ -84,6 +86,8 @@ RULES:
 
     final userPrompt =
         'Analyze this tabletop RPG narration for place/scene descriptions:$contextPart\n\nNew narration text:\n"$text"';
+
+    if (_modelPath == null) return PlaceAnalysis.empty;
 
     final response = await Isolate.run(() {
       return _inferNative(_modelPath!, _systemPrompt, userPrompt);

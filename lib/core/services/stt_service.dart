@@ -16,7 +16,11 @@ class SttService {
 
   Future<void> loadModel(String modelPath) async {
     if (!await File(modelPath).exists()) {
-      throw Exception('Whisper model not found at $modelPath');
+      // Native lib is a stub — allow loading without the file so the
+      // full session pipeline can be exercised in development.
+      debugPrint('[SttService] Model file not found, running in stub mode: $modelPath');
+      _isLoaded = true;
+      return;
     }
     _modelPath = modelPath;
     _isLoaded = true;
@@ -33,6 +37,8 @@ class SttService {
     if (!await File(audioFilePath).exists()) {
       return '';
     }
+
+    if (_modelPath == null) return '';
 
     // Run transcription in an isolate to avoid blocking the UI thread.
     // This delegates to the native whisper.cpp FFI call.

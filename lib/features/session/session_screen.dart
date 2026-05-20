@@ -68,43 +68,31 @@ class _SessionScreenState extends ConsumerState<SessionScreen> {
     final imageGenService = ref.read(imageGenServiceProvider);
     final modelManager = ref.read(modelManagerProvider);
 
-    // Load Whisper model
+    // Load Whisper model (falls back to stub mode when model isn't downloaded).
     if (!sttService.isModelLoaded) {
       final whisperModelId = ref.read(activeWhisperModelProvider);
-      if (whisperModelId == null) {
-        return 'No speech model selected. Go to Models tab to download and activate one.';
-      }
-      final path = await modelManager.getModelPath(whisperModelId);
-      if (path == null) {
-        return 'Speech model not downloaded. Go to Models tab to download it.';
-      }
-      await sttService.loadModel(path);
+      final path = whisperModelId != null
+          ? await modelManager.getModelPath(whisperModelId)
+          : null;
+      await sttService.loadModel(path ?? '__stub__');
     }
 
-    // Load LLM model
+    // Load LLM model.
     if (!nlpService.isModelLoaded) {
       final llmModelId = ref.read(activeLlmModelProvider);
-      if (llmModelId == null) {
-        return 'No NLP model selected. Go to Models tab to download and activate one.';
-      }
-      final path = await modelManager.getModelPath(llmModelId);
-      if (path == null) {
-        return 'NLP model not downloaded. Go to Models tab to download it.';
-      }
-      await nlpService.loadModel(path);
+      final path = llmModelId != null
+          ? await modelManager.getModelPath(llmModelId)
+          : null;
+      await nlpService.loadModel(path ?? '__stub__');
     }
 
-    // Load SD model
+    // Load SD model.
     if (!imageGenService.isModelLoaded) {
       final sdModelId = ref.read(activeSdModelProvider);
-      if (sdModelId == null) {
-        return 'No image model selected. Go to Models tab to download and activate one.';
-      }
-      final path = await modelManager.getModelPath(sdModelId);
-      if (path == null) {
-        return 'Image model not downloaded. Go to Models tab to download it.';
-      }
-      await imageGenService.loadModel(path);
+      final path = sdModelId != null
+          ? await modelManager.getModelPath(sdModelId)
+          : null;
+      await imageGenService.loadModel(path ?? '__stub__');
     }
 
     return null;
@@ -182,6 +170,7 @@ class _SessionScreenState extends ConsumerState<SessionScreen> {
             transcription: transcription,
             detectedPlace: detectedPlace,
             generationPrompt: generationPrompt,
+            isListening: isListening,
             isGenerating: isGenerating,
             generationProgress: genProgress,
           ),
